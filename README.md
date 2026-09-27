@@ -93,3 +93,35 @@ kubectl config set-context k3d-devops-lab --namespace=default
 ```
 
 The ArgoCD CLI in `--core` mode needs `argocd` as the context namespace; the final command restores the default namespace. On 2026-09-27, the Application synchronized successfully and was Healthy, the pod was Ready `1/1`, and both HTTP paths returned `200 OK`. Synchronization remains manual in this phase. The older Helm release remains installed; avoid `helm upgrade` while ArgoCD manages these resources. Make live changes through Git and ArgoCD.
+
+## Public read-only ArgoCD view
+
+Tailscale Funnel provides a free public HTTPS address under `*.ts.net`. The tunnel runs inside the cluster, so the host needs no Tailscale installation, public IP, router port forwarding, or paid domain. This is for viewing ArgoCD Applications and their resources; ArgoCD shows workloads registered as Applications, not every arbitrary Kubernetes object. Currently, `devops-lab` is the only Application.
+
+Current portal: **https://argocd-devops-lab.tail807fff.ts.net/**. Its address depends on the Tailscale tailnet and the persisted device identity; a fresh tailnet or deleted state volume may produce a different address.
+
+The files `argocd/public-view.yaml` and `argocd/public-funnel.yaml` enable anonymous `role:readonly` access and deploy a small proxy plus a Tailscale container. Apply the view ConfigMaps with their **separate field manager** so the official ArgoCD ConfigMap fields are preserved:
+
+```fish
+kubectl apply --context k3d-devops-lab --server-side --field-manager=devops-lab-public-view -f argocd/public-view.yaml
+kubectl apply --context k3d-devops-lab --server-side --field-manager=devops-lab-public-funnel -f argocd/public-funnel.yaml
+kubectl rollout status --context k3d-devops-lab -n argocd deployment/argocd-funnel
+kubectl logs --context k3d-devops-lab -n argocd deployment/argocd-funnel -c tailscale --tail=40
+```
+
+Open the login URL printed in the Tailscale logs and authorize the device in a free Personal tailnet. Then enable Funnel and read its public address:
+
+```fish
+kubectl exec --context k3d-devops-lab -n argocd deployment/argocd-funnel -c tailscale -- tailscale funnel --bg --yes http://127.0.0.1:8080
+kubectl exec --context k3d-devops-lab -n argocd deployment/argocd-funnel -c tailscale -- tailscale funnel status
+```
+
+Funnel may print a second authorization URL the first time it is enabled. The Tailscale identity is stored in the local Kubernetes PersistentVolumeClaim `argocd-funnel-state`; no authentication key belongs in Git. The address stays the same across pod restarts while that claim and the Tailscale device remain. The host, Docker, and k3d cluster must be running for visitors to reach the portal.
+
+Visitors can view applications without logging in; `admin` remains a separate authenticated account. To disable public exposure:
+
+```fish
+kubectl exec --context k3d-devops-lab -n argocd deployment/argocd-funnel -c tailscale -- tailscale funnel --https=443 off
+```
+
+On 2026-09-27, the public HTTPS endpoint returned HTTP 200, listed `devops-lab` and its Pod, Service, Deployment, and ReplicaSets, and reported `no` for an anonymous sync permission check. The portal was also opened successfully in Brave without login. Trivy 0.73.0 found no CRITICAL findings but reported seven HIGH entries in `tailscale/tailscale:v1.102.4` (four distinct CVEs across OpenSSL and Go packages) and one HIGH entry in `nginxinc/nginx-unprivileged:1.30.5-alpine` (`libexpat`). These findings remain open; rescan and update the images when fixes are published. Public DNS resolved via Cloudflare, Google, and Quad9 during validation, although the host's default DNS cache initially still returned no record.
