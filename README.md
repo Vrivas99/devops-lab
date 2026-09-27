@@ -1,105 +1,113 @@
 # DevOps Lab
 
-Phase 1 is a minimal FastAPI app with `/` and `/health` endpoints.
+Laboratorio local de Kubernetes con una aplicación FastAPI, despliegue gestionado por ArgoCD y un portal público de solo lectura. El código y la configuración están en [GitHub](https://github.com/Vrivas99/devops-lab); el clúster `devops-lab` corre en k3d sobre Docker.
 
-## Run locally with Docker
+## Cómo funciona
 
-From the repository root, run:
+```text
+GitHub (main) → ApplicationSet → ArgoCD → chart Helm → Deployment + Service → FastAPI
+                                              ↑
+                              imagen local importada en k3d
+
+Navegador → Tailscale Funnel → proxy Nginx → portal ArgoCD (solo lectura)
+```
+
+ArgoCD lee `helm/devops-lab` desde la rama `main` y sincroniza la aplicación `devops-lab` en el namespace del mismo nombre. El chart crea una réplica de FastAPI y un Service interno. `/` devuelve `{"message":"DevOps lab"}` y `/health` devuelve `{"status":"ok"}`; Kubernetes usa `/health` para comprobar que el contenedor está listo y vivo.
+
+La imagen actual es `devops-lab:local`. Hay que construirla e importarla en k3d: **un cambio de código en GitHub no genera ni distribuye una imagen nueva todavía**. Los cambios al chart sí se sincronizan automáticamente. La sincronización tiene `selfHeal: true` y `prune: false`: ArgoCD recupera recursos modificados o borrados en el clúster, pero retirar un recurso del chart requiere una eliminación manual. Si se borra la Application en cascada, el ApplicationSet la vuelve a crear y ArgoCD restaura sus recursos. El ApplicationSet se instala inicialmente con `kubectl` y se debe reaplicar si se borra.
+
+## Estructura del repositorio
+
+| Ruta | Función |
+| --- | --- |
+| `app/` | API FastAPI, dependencias y Dockerfile basado en `python:3.13-alpine`. |
+| `helm/devops-lab/` | Chart que define el Deployment, Service, imagen, réplica y recursos. Es la fuente del despliegue actual. |
+| `argocd/applicationset.yaml` | Registra el chart de GitHub en ArgoCD y mantiene presente la Application. |
+| `argocd/public-view.yaml` | Habilita acceso anónimo con permisos `role:readonly` al portal. |
+| `argocd/public-funnel.yaml` | Despliega el proxy, Tailscale Funnel y el volumen que conserva la identidad del dispositivo. |
+| `k8s/app.yaml` | Manifiestos del despliegue manual anterior; solo referencia. No aplicarlos sobre el despliegue gestionado por ArgoCD. |
+| `SKILL.md` | Contexto y reglas de trabajo para futuras sesiones de Codex. |
+
+## Herramientas y requisitos
+
+El entorno actual usa CachyOS/Arch Linux y fish. Para reproducirlo localmente se necesitan Git, Docker, k3d, kubectl, Helm y Trivy. El repositorio público de GitHub es la fuente Git de ArgoCD; se necesita conexión a Internet para descargar sus manifiestos y acceder al repositorio. Tailscale Funnel requiere una cuenta gratuita y una autorización inicial en el navegador. ArgoCD CLI y GitHub CLI están instalados en el equipo, pero los comandos de esta guía funcionan con `kubectl` y Git.
+
+GitHub Actions, GHCR, Prometheus, Grafana y Loki están previstos, pero aún no están configurados. La versión actual utiliza una imagen local; no hay pipeline de CI ni registro de imágenes.
+
+Para obtener el proyecto en otro equipo:
+
+```fish
+git clone https://github.com/Vrivas99/devops-lab.git
+cd devops-lab
+```
+
+## Ejecutar y escanear la aplicación en Docker
+
+Desde la raíz del repositorio:
 
 ```fish
 docker build -t devops-lab:local ./app
 docker run --rm --name devops-lab-app -p 127.0.0.1:8000:8000 devops-lab:local
 ```
 
-In another terminal:
+En otra terminal:
 
 ```fish
 curl --fail-with-body http://127.0.0.1:8000/
 curl --fail-with-body http://127.0.0.1:8000/health
-```
-
-Stop the container with Ctrl+C in the first terminal.
-
-## Scan the image
-
-```fish
 trivy image --scanners vuln devops-lab:local
 ```
 
-On 2026-09-27, Trivy 0.73.0 reported no Alpine OS vulnerabilities and three Python findings: two HIGH (`GHSA-6v7p-g79w-8964`, `CVE-2025-47273`) and one MEDIUM (`CVE-2026-59890`). The reported `msgpack` is vendored inside `pip`; standalone `msgpack` and `setuptools` were not importable in the running image. These findings are recorded rather than suppressed. Recheck them when the base image or vulnerability database changes.
+Detén el contenedor con `Ctrl+C`. Trivy es la herramienta de análisis de vulnerabilidades. En la última revisión documentada (2026-09-27), la imagen de la aplicación no tuvo hallazgos del sistema Alpine y registró dos HIGH y uno MEDIUM en paquetes Python; los hallazgos siguen abiertos y se deben revisar al actualizar la imagen o la base de datos de Trivy. Las imágenes de Tailscale y Nginx del túnel también tuvieron hallazgos HIGH pendientes de revisión.
 
-## Phase 3: manual deployment to k3d
+## Levantar el laboratorio en k3d
 
-This records the earlier manual deployment. ArgoCD now tracks the live Deployment and Service; use the GitOps workflow below for changes. From the repository root:
+El clúster existente se llama `devops-lab` y su contexto es `k3d-devops-lab`. Para reproducirlo desde cero, ejecuta estos comandos desde la raíz del repositorio. Si el clúster ya existe, comienza en `docker build` y omite la creación de namespaces e instalación de ArgoCD cuando ya estén presentes.
 
 ```fish
+k3d cluster create devops-lab
 kubectl config current-context
+kubectl create namespace devops-lab --context k3d-devops-lab
 docker build -t devops-lab:local ./app
 k3d image import devops-lab:local -c devops-lab
-kubectl apply --context k3d-devops-lab -f k8s/app.yaml
+kubectl create namespace argocd --context k3d-devops-lab
+kubectl apply --context k3d-devops-lab -n argocd --server-side --force-conflicts -f https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.3/manifests/install.yaml
+kubectl wait --context k3d-devops-lab -n argocd --for=condition=available deployment --all --timeout=180s
+kubectl rollout status --context k3d-devops-lab -n argocd statefulset/argocd-application-controller
+kubectl apply --context k3d-devops-lab -f argocd/applicationset.yaml
+```
+
+El ApplicationSet apunta al repositorio público `Vrivas99/devops-lab`, rama `main`. Publica los cambios allí antes de esperar que ArgoCD los despliegue. No uses `kubectl apply -f k8s/app.yaml` ni `helm upgrade` para cambiar los recursos actuales: ArgoCD los gestiona desde Git. En el clúster existente queda una release de Helm previa, pero no es el controlador activo.
+
+Comprueba el estado:
+
+```fish
+helm lint helm/devops-lab
+kubectl get --context k3d-devops-lab -n argocd applicationsets,applications
+kubectl get --context k3d-devops-lab -n devops-lab deployment,service,pods
 kubectl rollout status --context k3d-devops-lab -n devops-lab deployment/devops-lab
-kubectl get --context k3d-devops-lab -n devops-lab pods,services
+```
+
+Para probar el Service desde el equipo, ejecuta el port-forward en una terminal:
+
+```fish
 kubectl port-forward --context k3d-devops-lab -n devops-lab service/devops-lab 8080:80
 ```
 
-In another terminal:
+Y en otra:
 
 ```fish
 curl --fail-with-body http://127.0.0.1:8080/
 curl --fail-with-body http://127.0.0.1:8080/health
 ```
 
-Stop port forwarding with Ctrl+C. The Service is private to the cluster; port forwarding provides temporary local access.
+Detén el port-forward con `Ctrl+C`. El Service solo tiene acceso interno en Kubernetes.
 
-Validated on 2026-09-27: the Deployment rolled out, its pod was Ready `1/1`, the Service had a backing endpoint, and both HTTP paths returned `200 OK` through a port forward.
+## Portal público de ArgoCD
 
-## Phase 4: Helm chart
+La instancia actual está en **https://argocd-devops-lab.tail807fff.ts.net/**. Cualquier visitante puede ver las Applications registradas en ArgoCD y sus recursos sin iniciar sesión; las acciones de administración requieren autenticación. Actualmente solo está registrada `devops-lab`. El portal estará disponible mientras funcionen el equipo, Docker, el clúster y el túnel. La dirección depende de la cuenta Tailscale y de la identidad guardada en el volumen; un entorno nuevo puede obtener otra URL.
 
-The chart is in `helm/devops-lab`. To install it in a fresh `devops-lab` cluster, build and import the local image as shown above, then run:
-
-```fish
-helm lint helm/devops-lab
-helm install devops-lab helm/devops-lab --namespace devops-lab --create-namespace --kube-context k3d-devops-lab --wait
-```
-
-This was the Phase 4 upgrade workflow before GitOps took over:
-
-```fish
-helm upgrade devops-lab helm/devops-lab --namespace devops-lab --kube-context k3d-devops-lab --wait
-helm status devops-lab --namespace devops-lab --kube-context k3d-devops-lab
-```
-
-The Phase 3 Deployment and Service were adopted in place with Helm's `--take-ownership` option. During the first upgrade, Helm 4 required `--force-conflicts` once to take over the CPU request field previously managed by `kubectl`. The chart version is `0.1.1`, with a `50m` CPU request; Helm release revision 3 remains installed. Keep `k8s/app.yaml` as the Phase 3 reference.
-
-## Phase 5: ArgoCD GitOps
-
-The public Git source is `https://github.com/Vrivas99/devops-lab.git`. Install the pinned ArgoCD `v3.5.3` standard manifests into the local cluster:
-
-```fish
-kubectl create namespace argocd --context k3d-devops-lab
-kubectl apply --context k3d-devops-lab -n argocd --server-side --force-conflicts -f https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.3/manifests/install.yaml
-kubectl wait --context k3d-devops-lab -n argocd --for=condition=available deployment --all --timeout=180s
-kubectl rollout status --context k3d-devops-lab -n argocd statefulset/argocd-application-controller
-```
-
-After pushing this repository to GitHub, apply the ApplicationSet. It creates the `devops-lab` Application from the Helm chart and keeps that Application present:
-
-```fish
-kubectl apply --context k3d-devops-lab -f argocd/applicationset.yaml
-kubectl get --context k3d-devops-lab -n argocd applicationsets,applications
-```
-
-Phase 5 originally used a manually created Application. The ApplicationSet replaced that bootstrap manifest and adopted the existing Application. Its generated Application has automated sync with `selfHeal: true` and `prune: false`. This restores deleted or changed live resources and deploys future Git changes automatically; removing a resource from the chart still requires a manual prune. A cascading delete of the Application removes its Deployment and Service, then ApplicationSet recreates the Application and ArgoCD deploys the resources again. Only Applications listed in the ApplicationSet receive this behavior; add future Helm applications to its `elements` list. The ApplicationSet itself is bootstrapped with the command above; if it is deleted, reapply it from the repository. The older Helm release remains installed; avoid `helm upgrade` while ArgoCD manages these resources.
-
-Validated on 2026-09-27: after a cascading delete, the Application, Deployment, and Service all received new Kubernetes UIDs; the Application returned to `Synced/Healthy`, the new Pod became Ready, and `/` and `/health` both returned HTTP 200 through the Service.
-
-## Public read-only ArgoCD view
-
-Tailscale Funnel provides a free public HTTPS address under `*.ts.net`. The tunnel runs inside the cluster, so the host needs no Tailscale installation, public IP, router port forwarding, or paid domain. This is for viewing ArgoCD Applications and their resources; ArgoCD shows workloads registered as Applications, not every arbitrary Kubernetes object. Currently, `devops-lab` is the only Application.
-
-Current portal: **https://argocd-devops-lab.tail807fff.ts.net/**. Its address depends on the Tailscale tailnet and the persisted device identity; a fresh tailnet or deleted state volume may produce a different address.
-
-The files `argocd/public-view.yaml` and `argocd/public-funnel.yaml` enable anonymous `role:readonly` access and deploy a small proxy plus a Tailscale container. Apply the view ConfigMaps with their **separate field manager** so the official ArgoCD ConfigMap fields are preserved:
+En un clúster nuevo, configura la vista y el túnel después de instalar ArgoCD. Mantén el `field-manager` indicado para conservar los demás campos de los ConfigMaps de ArgoCD:
 
 ```fish
 kubectl apply --context k3d-devops-lab --server-side --field-manager=devops-lab-public-view -f argocd/public-view.yaml
@@ -108,19 +116,15 @@ kubectl rollout status --context k3d-devops-lab -n argocd deployment/argocd-funn
 kubectl logs --context k3d-devops-lab -n argocd deployment/argocd-funnel -c tailscale --tail=40
 ```
 
-Open the login URL printed in the Tailscale logs and authorize the device in a free Personal tailnet. Then enable Funnel and read its public address:
+Abre la URL de inicio de sesión que aparece en los logs y autoriza el dispositivo en Tailscale. Luego habilita Funnel; la primera vez puede aparecer otra URL para autorizarlo:
 
 ```fish
 kubectl exec --context k3d-devops-lab -n argocd deployment/argocd-funnel -c tailscale -- tailscale funnel --bg --yes http://127.0.0.1:8080
 kubectl exec --context k3d-devops-lab -n argocd deployment/argocd-funnel -c tailscale -- tailscale funnel status
 ```
 
-Funnel may print a second authorization URL the first time it is enabled. The Tailscale identity is stored in the local Kubernetes PersistentVolumeClaim `argocd-funnel-state`; no authentication key belongs in Git. The address stays the same across pod restarts while that claim and the Tailscale device remain. The host, Docker, and k3d cluster must be running for visitors to reach the portal.
-
-Visitors can view applications without logging in; `admin` remains a separate authenticated account. To disable public exposure:
+No guardes claves ni contraseñas en Git. La identidad Tailscale permanece en el PVC `argocd-funnel-state`. Para desactivar la publicación:
 
 ```fish
 kubectl exec --context k3d-devops-lab -n argocd deployment/argocd-funnel -c tailscale -- tailscale funnel --https=443 off
 ```
-
-On 2026-09-27, the public HTTPS endpoint returned HTTP 200, listed `devops-lab` and its Pod, Service, Deployment, and ReplicaSets, and reported `no` for an anonymous sync permission check. The portal was also opened successfully in Brave without login. Trivy 0.73.0 found no CRITICAL findings but reported seven HIGH entries in `tailscale/tailscale:v1.102.4` (four distinct CVEs across OpenSSL and Go packages) and one HIGH entry in `nginxinc/nginx-unprivileged:1.30.5-alpine` (`libexpat`). These findings remain open; rescan and update the images when fixes are published. Public DNS resolved via Cloudflare, Google, and Quad9 during validation, although the host's default DNS cache initially still returned no record.
