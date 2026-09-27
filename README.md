@@ -82,17 +82,16 @@ kubectl wait --context k3d-devops-lab -n argocd --for=condition=available deploy
 kubectl rollout status --context k3d-devops-lab -n argocd statefulset/argocd-application-controller
 ```
 
-After pushing this repository to GitHub, create and sync the Application:
+After pushing this repository to GitHub, apply the ApplicationSet. It creates the `devops-lab` Application from the Helm chart and keeps that Application present:
 
 ```fish
-kubectl apply --context k3d-devops-lab -f argocd/application.yaml
-kubectl config set-context k3d-devops-lab --namespace=argocd
-argocd app sync devops-lab --core --kube-context k3d-devops-lab --app-namespace argocd
-argocd app get devops-lab --core --kube-context k3d-devops-lab --app-namespace argocd
-kubectl config set-context k3d-devops-lab --namespace=default
+kubectl apply --context k3d-devops-lab -f argocd/applicationset.yaml
+kubectl get --context k3d-devops-lab -n argocd applicationsets,applications
 ```
 
-The ArgoCD CLI in `--core` mode needs `argocd` as the context namespace; the final command restores the default namespace. On 2026-09-27, the Application synchronized successfully and was Healthy, the pod was Ready `1/1`, and both HTTP paths returned `200 OK`. Synchronization remains manual in this phase. The older Helm release remains installed; avoid `helm upgrade` while ArgoCD manages these resources. Make live changes through Git and ArgoCD.
+Phase 5 originally used a manually created Application. The ApplicationSet replaced that bootstrap manifest and adopted the existing Application. Its generated Application has automated sync with `selfHeal: true` and `prune: false`. This restores deleted or changed live resources and deploys future Git changes automatically; removing a resource from the chart still requires a manual prune. A cascading delete of the Application removes its Deployment and Service, then ApplicationSet recreates the Application and ArgoCD deploys the resources again. Only Applications listed in the ApplicationSet receive this behavior; add future Helm applications to its `elements` list. The ApplicationSet itself is bootstrapped with the command above; if it is deleted, reapply it from the repository. The older Helm release remains installed; avoid `helm upgrade` while ArgoCD manages these resources.
+
+Validated on 2026-09-27: after a cascading delete, the Application, Deployment, and Service all received new Kubernetes UIDs; the Application returned to `Synced/Healthy`, the new Pod became Ready, and `/` and `/health` both returned HTTP 200 through the Service.
 
 ## Public read-only ArgoCD view
 

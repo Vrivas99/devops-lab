@@ -1,0 +1,30 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: devops-lab
+  namespace: argocd
+spec:
+  generators:
+    - list:
+        elements:
+          - name: devops-lab
+            path: helm/devops-lab
+            namespace: devops-lab
+  template:
+    metadata:
+      name: '{{name}}'
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/Vrivas99/devops-lab.git
+        targetRevision: main
+        path: '{{path}}'
+        helm:
+          releaseName: '{{name}}'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{namespace}}'
+      syncPolicy:
+        automated:
+          selfHeal: true
+          prune: false
