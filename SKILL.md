@@ -42,7 +42,7 @@ Build a small, reproducible DevOps platform around a minimal FastAPI application
 3. Minimal Deployment and Service; deploy and validate manually in k3d.
 4. Convert manifests to a Helm chart; validate install and upgrade.
 5. Install ArgoCD, add an Application, and reconcile deployment from Git.
-6. Add GitHub repository structure and Actions CI for tests, build, Trivy, and GHCR push.
+6. Expand the GitHub repository with Actions CI for tests, build, Trivy, and GHCR push.
 7. Have CI update the GitOps image version and verify ArgoCD deploys it.
 8. Add Prometheus, Grafana, Loki, basic metrics, dashboards, and log visibility.
 
@@ -60,14 +60,15 @@ Potential later extensions include ephemeral PR environments, cert-manager, Exte
 - Use Trivy for image security, ArgoCD for GitOps, GitHub Actions for CI, GHCR for images, and Prometheus/Grafana/Loki for eventual observability.
 - The user chose `python:3.13-alpine` for the app image in Phase 2 after a comparison with Debian slim.
 - The Phase 3 Deployment and Service in namespace `devops-lab` were adopted by a Helm 4 release named `devops-lab`. The namespace itself remains outside the release.
+- The user chose public `Vrivas99/devops-lab` as the Git source. ArgoCD tracks the Helm chart at `helm/devops-lab` on `main`; sync is manual until Phase 7. The older Helm release remains installed; avoid Helm upgrades and use Git and ArgoCD for further live changes.
 - Finish and validate each phase before proceeding. Phase 1 was approved after this `SKILL.md` was reviewed.
 
 ## Current Status
 
-- Phases 1–4 are complete. The app image uses Alpine; the Phase 2 Trivy scan reported 0 Alpine OS findings and 3 Python findings (2 HIGH, 1 MEDIUM). See `README.md` for the remaining findings.
-- On 2026-09-27, `helm/devops-lab` was linted, installed by adopting the manual Deployment and Service, and upgraded to chart `0.1.1`. Release `devops-lab` is deployed at revision 3; the pod is Ready `1/1`, the live CPU request is `50m`, and `/` and `/health` returned HTTP 200 through the Service. An initial upgrade failed due to a `kubectl` field ownership conflict; a one-time `--force-conflicts` retry succeeded. The directory is not yet an initialized Git repository.
+- Phases 1–5 are complete. The app image uses Alpine; the Phase 2 Trivy scan reported 0 Alpine OS findings and 3 Python findings (2 HIGH, 1 MEDIUM). See `README.md` for the remaining findings.
+- Git is initialized on `main` with public remote `https://github.com/Vrivas99/devops-lab.git`. ArgoCD `v3.5.3` is installed in namespace `argocd`. On 2026-09-27, Application `devops-lab` synchronized the chart from GitHub and was Healthy; the pod was Ready `1/1`, and `/` and `/health` returned HTTP 200 through the Service. Helm release `devops-lab` remains installed at chart `0.1.1`, revision 3. CI and GHCR are not configured yet.
 - The active kubectl context was `k3d-devops-lab`, and its single server node was Ready when checked on 2026-09-27.
 
 ## Next Step
 
-When the user requests the next stage, run Phase 5: install and configure ArgoCD, then create an Application that tracks this Helm chart from a Git source reachable by the cluster. Establish the Git source before claiming GitOps works.
+When the user requests the next stage, run Phase 6: add GitHub Actions CI for app checks, image build, Trivy scan, and GHCR push. Review the three documented Python findings before choosing a CI vulnerability gate.

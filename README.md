@@ -30,7 +30,7 @@ On 2026-09-27, Trivy 0.73.0 reported no Alpine OS vulnerabilities and three Pyth
 
 ## Phase 3: manual deployment to k3d
 
-This records the earlier manual deployment. The current Deployment and Service are managed by Helm; use the Helm workflow below for changes. From the repository root:
+This records the earlier manual deployment. ArgoCD now tracks the live Deployment and Service; use the GitOps workflow below for changes. From the repository root:
 
 ```fish
 kubectl config current-context
@@ -62,14 +62,14 @@ helm lint helm/devops-lab
 helm install devops-lab helm/devops-lab --namespace devops-lab --create-namespace --kube-context k3d-devops-lab --wait
 ```
 
-The current cluster already has this release. After editing the chart, run:
+This was the Phase 4 upgrade workflow before GitOps took over:
 
 ```fish
 helm upgrade devops-lab helm/devops-lab --namespace devops-lab --kube-context k3d-devops-lab --wait
 helm status devops-lab --namespace devops-lab --kube-context k3d-devops-lab
 ```
 
-The Phase 3 Deployment and Service were adopted in place with Helm's `--take-ownership` option. During the first upgrade, Helm 4 required `--force-conflicts` once to take over the CPU request field previously managed by `kubectl`. The final chart version is `0.1.1`, with a `50m` CPU request; release revision 3 is deployed. Keep `k8s/app.yaml` as the Phase 3 reference and manage the live Deployment and Service through Helm.
+The Phase 3 Deployment and Service were adopted in place with Helm's `--take-ownership` option. During the first upgrade, Helm 4 required `--force-conflicts` once to take over the CPU request field previously managed by `kubectl`. The chart version is `0.1.1`, with a `50m` CPU request; Helm release revision 3 remains installed. Keep `k8s/app.yaml` as the Phase 3 reference.
 
 ## Phase 5: ArgoCD GitOps
 
@@ -86,8 +86,10 @@ After pushing this repository to GitHub, create and sync the Application:
 
 ```fish
 kubectl apply --context k3d-devops-lab -f argocd/application.yaml
+kubectl config set-context k3d-devops-lab --namespace=argocd
 argocd app sync devops-lab --core --kube-context k3d-devops-lab --app-namespace argocd
 argocd app get devops-lab --core --kube-context k3d-devops-lab --app-namespace argocd
+kubectl config set-context k3d-devops-lab --namespace=default
 ```
 
-Synchronization is manual in this phase. The older Helm release history remains in the cluster; manage future changes through Git and ArgoCD.
+The ArgoCD CLI in `--core` mode needs `argocd` as the context namespace; the final command restores the default namespace. On 2026-09-27, the Application synchronized successfully and was Healthy, the pod was Ready `1/1`, and both HTTP paths returned `200 OK`. Synchronization remains manual in this phase. The older Helm release remains installed; avoid `helm upgrade` while ArgoCD manages these resources. Make live changes through Git and ArgoCD.
