@@ -26,6 +26,7 @@ La imagen actual es `devops-lab:local`. Hay que construirla e importarla en k3d:
 | `argocd/public-view.yaml` | Habilita acceso anónimo con permisos `role:readonly` al portal. |
 | `argocd/public-funnel.yaml` | Despliega el proxy, Tailscale Funnel y el volumen que conserva la identidad del dispositivo. |
 | `k8s/app.yaml` | Manifiestos del despliegue manual anterior; solo referencia. No aplicarlos sobre el despliegue gestionado por ArgoCD. |
+| `START.md` | Comandos fish para encender Docker y el clúster después de reiniciar el PC. |
 | `SKILL.md` | Contexto y reglas de trabajo para futuras sesiones de Codex. |
 
 ## Herramientas y requisitos

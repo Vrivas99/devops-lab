@@ -66,6 +66,7 @@ Potential later extensions include ephemeral PR environments, cert-manager, Exte
 
 ## Current Status
 
+- El clúster `devops-lab` quedó detenido y `docker.service`/`docker.socket` quedaron inactivos y deshabilitados para el arranque automático. Para reanudarlos tras reiniciar el PC, seguir `START.md`. `containerd.service` permanece activo como servicio independiente.
 - Phases 1–5 are complete. The app image uses Alpine; the Phase 2 Trivy scan reported 0 Alpine OS findings and 3 Python findings (2 HIGH, 1 MEDIUM). See `README.md` for the remaining findings.
 - Git is initialized on `main` with public remote `https://github.com/Vrivas99/devops-lab.git`. ArgoCD `v3.5.3` is installed in namespace `argocd`. On 2026-09-27, ApplicationSet adopted `devops-lab`; a cascading delete then recreated the Application, Deployment, and Service with new UIDs. The Application returned to Synced/Healthy, its pod was Ready, and `/` and `/health` returned HTTP 200. Helm release `devops-lab` remains installed at chart `0.1.1`, revision 3. CI and GHCR are not configured yet.
 - The active kubectl context was `k3d-devops-lab`, and its single server node was Ready when checked on 2026-09-27.
