@@ -26,7 +26,8 @@ La imagen actual es `devops-lab:local`. Hay que construirla e importarla en k3d:
 | `argocd/public-view.yaml` | Habilita acceso anónimo con permisos `role:readonly` al portal. |
 | `argocd/public-funnel.yaml` | Despliega el proxy, Tailscale Funnel y el volumen que conserva la identidad del dispositivo. |
 | `k8s/app.yaml` | Manifiestos del despliegue manual anterior; solo referencia. No aplicarlos sobre el despliegue gestionado por ArgoCD. |
-| `START.md` | Comandos fish para encender Docker y el clúster después de reiniciar el PC. |
+| `scripts/start-lab.fish` | Enciende Docker y el clúster existente y comprueba los componentes. |
+| `START.md` | Comando de arranque y pasos manuales de referencia. |
 | `SKILL.md` | Contexto y reglas de trabajo para futuras sesiones de Codex. |
 
 ## Herramientas y requisitos
@@ -34,6 +35,16 @@ La imagen actual es `devops-lab:local`. Hay que construirla e importarla en k3d:
 El entorno actual usa CachyOS/Arch Linux y fish. Para reproducirlo localmente se necesitan Git, Docker, k3d, kubectl, Helm y Trivy. El repositorio público de GitHub es la fuente Git de ArgoCD; se necesita conexión a Internet para descargar sus manifiestos y acceder al repositorio. Tailscale Funnel requiere una cuenta gratuita y una autorización inicial en el navegador. ArgoCD CLI y GitHub CLI están instalados en el equipo, pero los comandos de esta guía funcionan con `kubectl` y Git.
 
 GitHub Actions, GHCR, Prometheus, Grafana y Loki están previstos, pero aún no están configurados. La versión actual utiliza una imagen local; no hay pipeline de CI ni registro de imágenes.
+
+## Encender el lab después de reiniciar
+
+Docker no arranca automáticamente con el PC. Desde la raíz del repositorio, en una terminal fish:
+
+```fish
+./scripts/start-lab.fish
+```
+
+El script pide la contraseña local mediante `sudo`, inicia Docker y el clúster `devops-lab`, espera a que estén listos ArgoCD y FastAPI, y comprueba el túnel y la URL pública. Usa el clúster existente y su imagen local; no reinstala nada. Si algún paso falla, se detiene para que puedas revisar el error. [START.md](START.md) contiene los comandos manuales para revisar el arranque.
 
 Para obtener el proyecto en otro equipo:
 

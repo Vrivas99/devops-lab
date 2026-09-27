@@ -1,6 +1,14 @@
 # Encender el laboratorio después de reiniciar el PC
 
-Ejecuta estos comandos en fish. El clúster `devops-lab` ya existe: hay que iniciarlo, no crearlo de nuevo. Docker está configurado para permanecer apagado al arrancar el equipo; `sudo` pedirá tu contraseña local.
+Desde la raíz del repositorio, usa un solo comando en fish:
+
+```fish
+./scripts/start-lab.fish
+```
+
+El clúster `devops-lab` ya existe: hay que iniciarlo, no crearlo de nuevo. Docker está configurado para permanecer apagado al arrancar el equipo; `sudo` pedirá tu contraseña local. El script espera los componentes y comprueba la URL pública.
+
+Si necesitas ejecutar o revisar el arranque paso a paso, estos son los comandos principales:
 
 ```fish
 sudo systemctl start docker.service
